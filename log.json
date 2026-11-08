@@ -1,9 +1,9 @@
 {
   "schema": "pista.log.v1",
   "appVersion": "0.1.0-teste",
-  "exportedAt": "2026-11-08T01:15:06.346Z",
+  "exportedAt": "2026-11-08T05:36:42.770Z",
   "party": {
-    "id": "qkrj97yx",
+    "id": "rw83yldy",
     "name": "Minha festa",
     "durationMin": 240,
     "phases": [
@@ -26,7 +26,7 @@
         "energyEnd": 2
       }
     ],
-    "seed": 412554285,
+    "seed": 598921853,
     "sourceKind": "spotify"
   },
   "summary": {
@@ -46,167 +46,171 @@
   "events": [
     {
       "type": "party_started",
-      "t": 1,
-      "partyId": "qkrj97yx",
+      "t": 0,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
       "librarySize": 40
     },
     {
       "type": "first_audio",
-      "t": 572,
-      "partyId": "qkrj97yx",
+      "t": 53,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "msSincePartyCreated": 574
+      "msSincePartyCreated": 53
     },
     {
       "type": "track_started",
-      "t": 572,
-      "partyId": "qkrj97yx",
+      "t": 53,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "trackId": "t18",
+      "trackId": "t9",
       "transitionType": "start",
       "reason": []
     },
     {
       "type": "queued",
-      "t": 666,
-      "partyId": "qkrj97yx",
+      "t": 62,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "trackId": "t27",
-      "target": 2.1
+      "trackId": "t18",
+      "target": 2.1,
+      "reason": []
     },
     {
       "type": "transition_executed",
-      "t": 3687,
-      "partyId": "qkrj97yx",
+      "t": 4074,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "from": "t18",
-      "to": "t27",
+      "from": "t9",
+      "to": "t18",
       "transitionType": "spotify_queue"
     },
     {
       "type": "track_started",
-      "t": 3687,
-      "partyId": "qkrj97yx",
+      "t": 4074,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "trackId": "t27",
+      "trackId": "t18",
       "transitionType": "queue",
       "reason": []
     },
     {
       "type": "queued",
-      "t": 3694,
-      "partyId": "qkrj97yx",
+      "t": 4079,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "trackId": "t38",
-      "target": 2.1
+      "trackId": "t39",
+      "target": 2.1,
+      "reason": []
     },
     {
       "type": "intervention",
-      "t": 6845,
-      "partyId": "qkrj97yx",
+      "t": 5880,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
       "kind": "skip",
-      "trackId": "t27"
+      "trackId": "t18"
     },
     {
       "type": "transition_executed",
-      "t": 11684,
-      "partyId": "qkrj97yx",
+      "t": 10071,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "from": "t27",
-      "to": "t38",
+      "from": "t18",
+      "to": "t39",
       "transitionType": "spotify_queue"
     },
     {
       "type": "track_started",
-      "t": 11684,
-      "partyId": "qkrj97yx",
+      "t": 10071,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "trackId": "t38",
+      "trackId": "t39",
       "transitionType": "queue",
       "reason": []
     },
     {
       "type": "queued",
-      "t": 11688,
-      "partyId": "qkrj97yx",
+      "t": 10076,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "trackId": "t22",
-      "target": 2.1
+      "trackId": "t38",
+      "target": 2.1,
+      "reason": []
     },
     {
       "type": "intervention",
-      "t": 13390,
-      "partyId": "qkrj97yx",
+      "t": 12430,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
       "kind": "energy_up",
       "bias": 1
     },
     {
       "type": "intervention",
-      "t": 13573,
-      "partyId": "qkrj97yx",
+      "t": 12585,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
       "kind": "play_now",
       "targetTrackId": "t2"
     },
     {
       "type": "track_started",
-      "t": 13601,
-      "partyId": "qkrj97yx",
+      "t": 12610,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
       "trackId": "t2",
       "transitionType": "play_now"
     },
     {
       "type": "silence_detected",
-      "t": 21703,
-      "partyId": "qkrj97yx",
+      "t": 20074,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "ms": 4016
+      "ms": 3002
     },
     {
       "type": "track_started",
-      "t": 22304,
-      "partyId": "qkrj97yx",
+      "t": 20092,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "trackId": "t22",
+      "trackId": "t38",
       "transitionType": "recovery"
     },
     {
       "type": "queued",
-      "t": 22315,
-      "partyId": "qkrj97yx",
+      "t": 20097,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
-      "trackId": "t5",
-      "target": 3.1
+      "trackId": "t30",
+      "target": 3.1,
+      "reason": []
     },
     {
       "type": "party_resumed",
-      "t": 24031,
-      "partyId": "qkrj97yx",
+      "t": 22469,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
       "positionMs": 0
     },
     {
       "type": "intervention",
-      "t": 24357,
-      "partyId": "qkrj97yx",
+      "t": 22630,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
       "kind": "end"
     },
     {
       "type": "party_closed",
-      "t": 39518,
-      "partyId": "qkrj97yx",
+      "t": 37860,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
       "reason": "host"
     },
     {
       "type": "feedback",
-      "t": 40018,
-      "partyId": "qkrj97yx",
+      "t": 38520,
+      "partyId": "rw83yldy",
       "appVersion": "0.1.0-teste",
       "nota": 8,
       "denovo": "sim",

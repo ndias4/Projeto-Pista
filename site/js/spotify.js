@@ -6,7 +6,7 @@ import { store } from './store.js';
 
 const ACCOUNTS = 'https://accounts.spotify.com';
 const API = 'https://api.spotify.com/v1';
-export const REDIRECT_URI = `${location.origin}/callback`;
+export const REDIRECT_URI = (typeof location !== 'undefined' && location.origin ? `${location.origin}/callback` : 'http://127.0.0.1:8888/callback');
 export const SCOPES = [
   'streaming', 'user-read-email', 'user-read-private',          // Web Playback SDK
   'user-read-playback-state', 'user-modify-playback-state',     // Modo Condutor
@@ -29,11 +29,24 @@ function randomString(n = 64) {
   return Array.from(v, (x) => chars[x % chars.length]).join('');
 }
 
+export const CLIENT_ID_RE = /^[A-Za-z0-9]{20,64}$/;
+export function isClientIdValid(clientId) {
+  return typeof clientId === 'string' && CLIENT_ID_RE.test(clientId.trim());
+}
+export function getClientIdIssue(clientId) {
+  const value = String(clientId ?? '').trim();
+  if (!value) return 'Falta o Client ID do Spotify. Cole o valor do app de desenvolvedor antes de conectar.';
+  if (!CLIENT_ID_RE.test(value)) return 'O Client ID do Spotify precisa ter entre 20 e 64 letras ou números. Copie do painel do Spotify e tente de novo.';
+  return '';
+}
+
 export function getClientId() { return store.get('clientId', ''); }
 
 export async function startLogin() {
-  const clientId = getClientId();
-  if (!clientId) throw new Error('Falta o Client ID do Spotify.');
+  const clientId = getClientId().trim();
+  const issue = getClientIdIssue(clientId);
+  if (issue) throw new Error(issue);
+  store.set('clientId', clientId);
   const verifier = randomString(64);
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   const state = randomString(16);

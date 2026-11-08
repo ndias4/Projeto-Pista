@@ -108,6 +108,11 @@ label > .input { margin-top: 4px; }
 .pl-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pl-name { font-weight: 700; line-height: 1.25; }
 .pl-meta { font-size: 13px; color: var(--muted); }
+.playlist-summary { margin-top: 8px; }
+.phase-pill { display: inline-flex; align-items: center; gap: 6px; }
+.phase-pill.warmup { background: rgba(46, 196, 182, .12); border: 1px solid rgba(46, 196, 182, .5); color: #b8f4ee; }
+.phase-pill.peak { background: rgba(255, 90, 60, .12); border: 1px solid rgba(255, 90, 60, .5); color: #ffd3c8; }
+.phase-pill.closing { background: rgba(79, 141, 255, .12); border: 1px solid rgba(79, 141, 255, .5); color: #cfe1ff; }
 
 /* montar a noite */
 .form-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
@@ -158,7 +163,12 @@ label > .input { margin-top: 4px; }
 .ttitle { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tartist { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag { background: #2a2730; border-radius: 99px; padding: 0 7px; font-size: 12px; }
+.track-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 92px; }
 .src { font-size: 12px; color: #6f6a77; min-width: 74px; text-align: right; }
+.track-phase { display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 99px; letter-spacing: .03em; }
+.track-phase.warmup { background: rgba(46, 196, 182, .12); color: #b8f4ee; }
+.track-phase.peak { background: rgba(255, 90, 60, .12); color: #ffd3c8; }
+.track-phase.closing { background: rgba(79, 141, 255, .12); color: #cfe1ff; }
 .ebtns { display: flex; gap: 4px; }
 .e { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: #121116; color: var(--muted); font: inherit; font-weight: 800; cursor: pointer; }
 .e:hover { border-color: var(--c); color: var(--text); }
@@ -196,8 +206,16 @@ label > .input { margin-top: 4px; }
 .cover { width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover; background: #2a2730; display: block; }
 .now-info h2 { font-size: clamp(22px, 3.4vw, 34px); margin: 4px 0 2px; line-height: 1.15; }
 .now-info p { margin: 0 0 10px; }
+[data-clientid-status] { margin-top: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.02); }
+[data-clientid-status][data-state="ok"] { border-color: rgba(69, 209, 139, .45); background: rgba(69, 209, 139, .08); color: #b8f2d2; }
+[data-clientid-status][data-state="error"] { border-color: rgba(255, 77, 94, .45); background: rgba(255, 77, 94, .08); color: #ffc7cf; }
 .progress { height: 6px; background: #2c2933; border-radius: 99px; overflow: hidden; margin: 6px 0; }
 .progress span { display: block; height: 100%; background: var(--accent); width: 0; transition: width .9s linear; }
+.live-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
+.metric { background: #17151b; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-height: 78px; display: flex; flex-direction: column; justify-content: center; }
+.metric-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.metric strong { font-size: 16px; line-height: 1.3; margin-top: 4px; }
+@media (max-width: 700px) { .live-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
 @media (max-width: 700px) { .controls { grid-template-columns: repeat(2, 1fr); } }
 .ctl { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 64px; border-radius: 14px; border: 1px solid var(--line); background: #24212a; color: var(--text); font: inherit; font-size: 16px; font-weight: 750; cursor: pointer; transition: background .15s, border-color .15s, transform .1s; }

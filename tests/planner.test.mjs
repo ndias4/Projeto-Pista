@@ -1,7 +1,8 @@
 // Testes de propriedade do planejador (E4-4): determinismo, repetição de artista, aderência à fase, "nunca tocar".
 import assert from 'node:assert/strict';
-import { nextTrack, defaultPhases, phaseAt, targetEnergy, validatePhases, guessFromTitle, countArtists } from '../site/js/planner.js';
+import { nextTrack, defaultPhases, phaseAt, targetEnergy, validatePhases, guessFromTitle, countArtists, chooseTrackPhase } from '../site/js/planner.js';
 import { demoLibrary } from '../site/js/demo.js';
+import { getClientIdIssue, isClientIdValid } from '../site/js/spotify.js';
 
 function simulate(library, seed, durationMin = 240, bias = 0) {
   const party = { durationMin, phases: defaultPhases(durationMin), seed, breathers: true };
@@ -100,6 +101,13 @@ test('playlist presa a uma fase só toca nela enquanto houver alternativa', () =
   assert.ok(early.every((p) => p.track.phase !== 'closing'));
 });
 
+test('múltiplas playlists por fase elegem uma fase estável para faixas duplicadas', () => {
+  assert.equal(chooseTrackPhase(['peak', 'warmup', 'peak']), 'peak');
+  assert.equal(chooseTrackPhase(['closing', 'warmup']), 'warmup');
+  assert.equal(chooseTrackPhase([]), null);
+  assert.equal(chooseTrackPhase(['peak']), 'peak');
+});
+
 test('biblioteca pequena (5 faixas) repete sem travar', () => {
   const small = lib.slice(0, 5);
   const { picks } = simulate(small, 1, 60);
@@ -122,6 +130,15 @@ test('palpite pelo título', () => {
   assert.equal(guessFromTitle('Música X (Remix)').energy, 4);
   assert.equal(guessFromTitle('Música Y - Ao Vivo').live, true);
   assert.equal(guessFromTitle('Normal').energy, 3);
+});
+
+test('validação do Client ID do Spotify é rigorosa e útil', () => {
+  assert.equal(isClientIdValid('abcdef0123456789abcdef0123456789'), true);
+  assert.equal(isClientIdValid('  abcdef0123456789abcdef0123456789  '), true);
+  assert.equal(isClientIdValid('short'), false);
+  assert.equal(isClientIdValid('abc!def0123456789abcdef0123456789'), false);
+  assert.match(getClientIdIssue(''), /Falta o Client ID/i);
+  assert.match(getClientIdIssue('short'), /20 e 64/i);
 });
 
 console.log(`\n${passed} testes passaram`);

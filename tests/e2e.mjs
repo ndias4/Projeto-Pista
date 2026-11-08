@@ -2,13 +2,46 @@
 // Uso: node tests/e2e.mjs  (com o servidor do PISTA rodando em http://127.0.0.1:8888)
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ROOT = path.resolve(__dirname, '..');
 
 const BASE = 'http://127.0.0.1:8888';
 const SHOTS = process.env.SHOTS || '.';
 const errors = [];
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS' };
+
+async function ensureServer() {
+  try {
+    const res = await fetch(BASE + '/');
+    if (res.ok) return null;
+  } catch {
+    // servidor não está disponível; será iniciado abaixo
+  }
+
+  const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(ROOT, 'servidor.ps1')], {
+    cwd: ROOT,
+    windowsHide: true,
+    stdio: 'ignore',
+  });
+
+  const started = Date.now();
+  while (Date.now() - started < 20000) {
+    try {
+      const res = await fetch(BASE + '/');
+      if (res.ok) return child;
+    } catch { }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  child.kill();
+  throw new Error('O servidor local do PISTA não respondeu em 20s.');
+}
 
 function fakeTracks(n) {
   const genres = ['funk', 'pagode', 'sertanejo', 'pop', 'eletro'];
@@ -209,12 +242,20 @@ async function demoFlow(browser) {
   await ctx.close();
 }
 
-const browser = await chromium.launch();
+let serverProcess = null;
 try {
-  await spotifyFlow(browser);
-  await demoFlow(browser);
+  serverProcess = await ensureServer();
+  const browser = await chromium.launch();
+  try {
+    await spotifyFlow(browser);
+    await demoFlow(browser);
+  } finally {
+    await browser.close();
+  }
+  if (errors.length) { console.error('ERROS NO NAVEGADOR:\n' + errors.join('\n')); process.exit(1); }
+  console.log('\nTodos os testes ponta a ponta passaram.');
 } finally {
-  await browser.close();
+  if (serverProcess) {
+    serverProcess.kill();
+  }
 }
-if (errors.length) { console.error('ERROS NO NAVEGADOR:\n' + errors.join('\n')); process.exit(1); }
-console.log('\nTodos os testes ponta a ponta passaram.');

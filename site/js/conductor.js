@@ -16,9 +16,12 @@ export class Conductor {
     this.clock = engine.clock;
     this.onChange = onChange;
     this.onToast = onToast;
-    this.live = saved?.live || {
-      status: 'ready', currentId: null, committedId: null, committedReason: null,
-      played: [], bias: 0, startedAt: null, lastPhase: null, pausedByHost: false,
+    this.live = {
+      ...(saved?.live || {
+        status: 'ready', currentId: null, committedId: null, committedReason: null,
+        played: [], bias: 0, startedAt: null, lastPhase: null, pausedByHost: false,
+      }),
+      priority: Array.isArray(saved?.live?.priority) ? [...saved.live.priority] : [],
     };
     this.log = saved?.log || [];
     this.stateCache = null;
@@ -72,8 +75,19 @@ export class Conductor {
     const committed = this.track(this.live.committedId);
     const out = [];
     if (committed) out.push({ track: committed, committed: true, reason: this.live.committedReason || [], offsetMin: this.elapsedMin() + this.remainingCurrentMin() });
+
+    const priorityQueue = [];
+    for (const id of this.live.priority || []) {
+      const track = this.track(id);
+      if (!track || track.neverPlay || this.live.played.includes(id)) continue;
+      priorityQueue.push({ track, committed: false, reason: ['pedido de convidado'], offsetMin: this.elapsedMin() + this.remainingCurrentMin() + (committed ? committed.durationMs / 60000 : 0) + priorityQueue.length * (track.durationMs / 60000) });
+    }
+    if (priorityQueue.length) {
+      out.push(...priorityQueue.slice(0, Math.max(0, n - out.length)));
+    }
+
     const start = this.elapsedMin() + this.remainingCurrentMin() + (committed ? committed.durationMs / 60000 : 0);
-    const more = planAhead({ party: this.party, library: this.library, byId: this.byId, history: this.history(), offsetMin: start, bias: this.live.bias }, n - out.length);
+    const more = planAhead({ party: this.party, library: this.library, byId: this.byId, history: this.history(), offsetMin: start, bias: this.live.bias }, Math.max(0, n - out.length));
     return out.concat(more.map((m) => ({ ...m, committed: false })));
   }
 
@@ -122,13 +136,31 @@ export class Conductor {
 
   async commitNext() {
     const offset = this.elapsedMin() + this.remainingCurrentMin();
-    const pick = this.pickNext(offset);
-    if (!pick) { this.live.committedId = null; this.live.committedReason = null; return; }
+    let pick = null;
+
+    if (this.live.priority && this.live.priority.length) {
+      const remaining = [];
+      for (const id of this.live.priority) {
+        const track = this.track(id);
+        if (!track || track.neverPlay || this.live.played.includes(id) || this.live.currentId === id) {
+          continue;
+        }
+        pick = { track, reason: ['pedido de convidado'], target: offset };
+        break;
+      }
+      this.live.priority = this.live.priority.filter((id) => id !== pick?.track?.id);
+    }
+
+    if (!pick) {
+      pick = this.pickNext(offset);
+      if (!pick) { this.live.committedId = null; this.live.committedReason = null; return; }
+    }
+
     try {
       await this.engine.enqueue(pick.track.uri);
       this.live.committedId = pick.track.id;
       this.live.committedReason = pick.reason;
-      this.event('queued', { trackId: pick.track.id, target: Math.round(pick.target * 10) / 10 });
+      this.event('queued', { trackId: pick.track.id, target: Math.round((pick.target ?? offset) * 10) / 10, reason: pick.reason });
     } catch (e) {
       this.live.committedId = null;
       this.live.committedReason = null;
@@ -286,6 +318,16 @@ export class Conductor {
     this.save(true);
     this.changed();
   }
+
+  playNext(id) {
+    const t = this.track(id);
+    if (!t) return;
+    if (!this.live.priority) this.live.priority = [];
+    if (!this.live.priority.includes(id)) this.live.priority.push(id);
+    this.intervention('play_next', { targetTrackId: id });
+    this.save(true);
+    this.changed();
+  }
   async neverAgain(trackId = null) {
     const id = trackId || this.live.currentId;
     const t = this.track(id);
@@ -345,7 +387,12 @@ export class Conductor {
   }
 
   snapshot() {
-    return { party: this.party, live: { ...this.live, savedPositionMs: this.stateCache?.positionMs || 0 }, log: this.log, engine: this.engine.kind };
+    return {
+      party: this.party,
+      live: { ...this.live, priority: [...(this.live.priority || [])], savedPositionMs: this.stateCache?.positionMs || 0 },
+      log: this.log,
+      engine: this.engine.kind,
+    };
   }
   save(force = false) {
     if (!force && Date.now() - this.lastSave < 5000) return;

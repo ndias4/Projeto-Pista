@@ -2,20 +2,25 @@
   "name": "pista",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "server.js",
   "directories": {
     "test": "tests"
   },
   "scripts": {
-    "start": "powershell -ExecutionPolicy Bypass -File servidor.ps1",
-    "test": "node tests/planner.test.mjs",
+    "start": "node server.js",
+    "start:legacy": "powershell -ExecutionPolicy Bypass -File servidor.ps1",
+    "test": "node tests/planner.test.mjs && node tests/conductor.test.mjs",
+    "test:server": "node --test tests/server.test.mjs",
     "test:e2e": "node tests/e2e.mjs",
-    "test:all": "npm run test && npm run test:e2e"
+    "test:all": "npm run test && npm run test:server && npm run test:e2e"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.21.2"
+  },
   "devDependencies": {
     "playwright": "^1.65.0"
   }

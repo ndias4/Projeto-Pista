@@ -9,15 +9,34 @@ Corresponde ao "Caminho A / Modo Condutor" da analise (Parte 02 secao 5A):
 ordena e conduz, mas NAO mixa o audio do Spotify (decisao D-01).
 
 
-COMO RODAR (Windows, sem instalar nada)
----------------------------------------
-1. De dois cliques em INICIAR-PISTA.bat
-   Abre uma janela preta (o servidor) e o navegador em http://127.0.0.1:8888
-   Deixe essa janela aberta durante a festa. Para desligar, feche-a.
-2. Use Chrome ou Edge no computador.
-   Se o Windows mostrar um aviso de seguranca, clique em "Mais informacoes"
-   e depois em "Executar assim mesmo".
-3. Para ver como funciona sem Spotify: clique em "Abrir demonstracao".
+COMO RODAR (Node/Express)
+-------------------------
+1. Abra o terminal na pasta do projeto.
+2. Rode:
+
+   npm install
+   npm start
+
+3. O app abre em http://127.0.0.1:8888
+4. Use Chrome ou Edge no computador.
+5. Para ver como funciona sem Spotify: clique em "Abrir demonstracao".
+
+SERVIDOR LEGADO (obsoleto)
+--------------------------
+O servidor PowerShell continua presente como alternativa antiga para uso local:
+
+   npm run start:legacy
+
+ou o atalho INICIAR-PISTA.bat.
+
+PUBLICACAO NO RENDER
+--------------------
+1. Crie um Web Service no Render.
+2. Use Build Command: npm install
+3. Use Start Command: npm start
+4. Defina PUBLIC_URL como https://<app>.onrender.com
+5. Cadastre https://<app>.onrender.com/callback no Spotify Dashboard.
+6. Mantenha http://127.0.0.1:8888/callback para uso local.
 
 
 CONFIGURAR O SPOTIFY (uma vez so, 5 minutos)

@@ -88,6 +88,18 @@ export function targetEnergy(party, offsetMin, bias = 0) {
 
 const PHASE_ORDER = { warmup: 0, peak: 1, closing: 2 };
 
+export function chooseTrackPhase(phases) {
+  if (!Array.isArray(phases) || !phases.length) return null;
+  const counts = new Map();
+  for (const phase of phases) {
+    if (!phase) continue;
+    counts.set(phase, (counts.get(phase) || 0) + 1);
+  }
+  if (!counts.size) return null;
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || PHASE_ORDER[a[0]] - PHASE_ORDER[b[0]]);
+  return sorted[0][0];
+}
+
 function artistOverlap(a, b) {
   if (!a || !b) return false;
   for (const x of a) if (b.includes(x)) return true;

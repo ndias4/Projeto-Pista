@@ -1,7 +1,7 @@
 // PISTA · interface (versão de teste)
 import { store } from './store.js';
 import * as S from './spotify.js';
-import { defaultPhases, validatePhases, targetEnergy, phaseAt, guessFromTitle, PHASE_LABEL, PHASE_KINDS, hash01, normalizeKey } from './planner.js';
+import { defaultPhases, validatePhases, targetEnergy, phaseAt, guessFromTitle, PHASE_LABEL, PHASE_KINDS, hash01, normalizeKey, chooseTrackPhase } from './planner.js';
 import { Conductor, APP_VERSION } from './conductor.js';
 import { SpotifyEngine, DemoEngine, LocalAudioEngine } from './playback.js';
 import { demoLibrary } from './demo.js';
@@ -29,6 +29,7 @@ const app = {
   devices: [],
   filter: '',
   sort: 'playlist',
+  phaseFilter: 'all',
   showAll: false,
   demoSpeed: 30,
   intentNotes: '',
@@ -103,6 +104,8 @@ function applyTags(track, playlistId = null) {
   if (t.energy && (t.src === 'claude' || t.src === 'host')) { energy = t.energy; src = t.src; }
   return {
     ...track, playlistId, phase,
+    phases: phase ? [phase] : [],
+    playlistIds: playlistId ? [playlistId] : [],
     energy, energySource: src,
     genre: t.genre || null,
     isLive: t.live ?? guess.live,
@@ -129,12 +132,21 @@ function render() {
 function renderLoading() { return `<section class="center"><div class="spinner"></div><p class="muted">Carregando…</p></section>`; }
 
 function originWarning() {
-  if (location.origin === EXPECTED_ORIGIN) return '';
-  return `<div class="alert warn"><strong>Endereço diferente do esperado.</strong> Para o login do Spotify funcionar, abra o PISTA em <code>${EXPECTED_ORIGIN}</code> (com o arquivo INICIAR-PISTA.bat). O Spotify não aceita <code>localhost</code>.</div>`;
+  const isLocalLoopback = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+  if (location.protocol !== 'http:' || isLocalLoopback) return '';
+  return `<div class="alert warn"><strong>Endereço em HTTP fora do localhost.</strong> Se este painel estiver em produção ou na rede local sem loopback, o Spotify e os QR Code precisam usar HTTPS e um Redirect URI público em <code>${location.origin}/callback</code>.</div>`;
+}
+
+function clientIdFeedback(value) {
+  const v = String(value ?? '').trim();
+  if (!v) return { ok: false, text: 'Cole o Client ID do app do Spotify para continuar.' };
+  if (!S.isClientIdValid(v)) return { ok: false, text: 'O Client ID precisa ter entre 20 e 64 letras/números — copie do painel do Spotify.' };
+  return { ok: true, text: 'Client ID válido. Você pode conectar com segurança.' };
 }
 
 function renderSetup() {
   const cid = S.getClientId();
+  const status = clientIdFeedback(cid);
   return `
   <section class="hero">
     <p class="eyebrow">Condutor musical para festas em casa</p>
@@ -155,9 +167,10 @@ function renderSetup() {
         <li>Copie o <strong>Client ID</strong> e cole aqui:</li>
       </ol>
       <form class="row" data-form="clientId">
-        <input id="clientId" class="input grow" placeholder="Client ID (32 caracteres)" value="${esc(cid)}" autocomplete="off" spellcheck="false" required minlength="20">
+        <input id="clientId" class="input grow" placeholder="Client ID (20-64 caracteres)" value="${esc(cid)}" autocomplete="off" spellcheck="false" required minlength="20">
         <button class="btn primary">Salvar e conectar</button>
       </form>
+      <p class="muted small" data-clientid-status aria-live="polite" data-state="${status.ok ? 'ok' : 'error'}">${esc(status.text)}</p>
     </article>
     <article class="card alt">
       <h2>Músicas do seu Computador (Caminho B)</h2>
@@ -189,18 +202,22 @@ function renderSetup() {
 }
 
 function renderConnect() {
+  const cid = S.getClientId();
+  const status = clientIdFeedback(cid);
   return `
   ${originWarning()}
   <section class="center narrow">
     <h1>Conectar ao Spotify</h1>
     <p class="lead">Você vai para a página do Spotify, autoriza o PISTA e volta para cá.</p>
-    <button class="btn primary big" data-act="login">Conectar com Spotify</button>
+    <button class="btn primary big" data-act="login" ${cid && status.ok ? '' : 'disabled'}>Conectar com Spotify</button>
+    <p class="muted small" data-clientid-status aria-live="polite" data-state="${status.ok ? 'ok' : 'error'}">${esc(status.text)}</p>
     <p class="muted small">Permissões pedidas: ler suas playlists e controlar a reprodução. Nada é enviado a outro servidor: o acesso fica só neste navegador.</p>
-    <button class="btn ghost sm" data-act="change-client">Trocar Client ID</button>
+    <button class="btn ghost sm" data-act="change-client">${cid ? 'Trocar Client ID' : 'Adicionar Client ID'}</button>
   </section>`;
 }
 
 function renderPlaylists() {
+  const summary = PHASE_KINDS.map((k) => ({ kind: k, count: app.playlists.filter((p) => app.selected.has(p.id) && app.playlistPhase[p.id] === k).length }));
   const items = app.playlists.map((p) => {
     const sel = app.selected.has(p.id);
     const own = app.me && (p.owner?.id === app.me.id || p.collaborative);
@@ -219,6 +236,8 @@ function renderPlaylists() {
       </select>` : ''}
     </div>`;
   }).join('');
+  const chips = summary.filter((x) => x.count).map((x) => `<span class="pill phase-pill ${x.kind}">${PHASE_LABEL[x.kind]}: ${x.count}</span>`).join('') || '<span class="muted small">Sem fase atribuída ainda</span>';
+  const bulkButtons = PHASE_KINDS.map((kind) => `<button class="btn ghost sm" data-act="bulk-phase" data-phase="${kind}">Só ${PHASE_LABEL[kind]}</button>`).join('');
   return `
   <section class="head">
     <p class="eyebrow">Passo 1 de 2</p>
@@ -230,6 +249,8 @@ function renderPlaylists() {
     <div class="row"><button class="btn ghost sm" data-act="reload-pl">Atualizar lista</button>
     <button class="btn primary" data-act="load-library" ${app.selected.size ? '' : 'disabled'}>Carregar músicas →</button></div>
   </div>
+  <div class="row wrap gap-2 playlist-summary" style="margin: 10px 0 16px;">${chips}</div>
+  <div class="row wrap gap-2" style="margin: 0 0 16px;">${bulkButtons}<button class="btn ghost sm" data-act="bulk-phase" data-phase="">Limpar fase</button></div>
   <div class="pl-grid">${items || '<p class="muted">Nenhuma playlist encontrada nesta conta.</p>'}</div>`;
 }
 
@@ -277,10 +298,14 @@ function energyButtons(t) {
 }
 
 function trackRow(t) {
+  const phaseTag = t.phase ? `<span class="track-phase ${esc(t.phase)}">${PHASE_LABEL[t.phase]}</span>` : '';
   return `<div class="trow ${t.neverPlay ? 'never' : ''}" data-row="${esc(t.id)}">
     <img class="thumb" src="${esc(t.image)}" alt="" loading="lazy">
     <div class="tinfo"><div class="ttitle">${esc(t.title)}</div><div class="tartist">${esc(t.artist)}${t.genre ? ` · <span class="tag">${esc(t.genre)}</span>` : ''}${t.isLive ? ' · <span class="tag">ao vivo</span>' : ''}</div></div>
-    <span class="src" data-src="${esc(t.id)}">${esc(SRC_LABEL[t.energySource] || '')}</span>
+    <div class="track-meta">
+      <span class="src" data-src="${esc(t.id)}">${esc(SRC_LABEL[t.energySource] || '')}</span>
+      ${phaseTag}
+    </div>
     ${energyButtons(t)}
     <button class="btn ghost xs ${t.neverPlay ? 'on' : ''}" data-act="never" data-id="${esc(t.id)}" title="Nunca tocar">${t.neverPlay ? 'Não toca' : 'Nunca'}</button>
   </div>`;
@@ -288,7 +313,11 @@ function trackRow(t) {
 
 function visibleTracks() {
   const f = app.filter.trim().toLowerCase();
-  let list = app.library.filter((t) => !f || `${t.title} ${t.artist} ${t.genre || ''}`.toLowerCase().includes(f));
+  let list = app.library.filter((t) => {
+    if (app.phaseFilter && app.phaseFilter !== 'all' && t.phase !== app.phaseFilter) return false;
+    if (!f) return true;
+    return `${t.title} ${t.artist} ${t.genre || ''}`.toLowerCase().includes(f);
+  });
   if (app.sort === 'energy') list = list.slice().sort((a, b) => a.energy - b.energy || a.title.localeCompare(b.title));
   if (app.sort === 'artist') list = list.slice().sort((a, b) => a.artist.localeCompare(b.artist));
   if (app.sort === 'unrated') list = list.slice().sort((a, b) => (a.energySource === 'host') - (b.energySource === 'host'));
@@ -360,6 +389,10 @@ function renderNight() {
       </div>` : ''}
     <div class="row wrap toolbar">
       <input class="input grow" type="search" placeholder="Filtrar por título, artista ou gênero" value="${esc(app.filter)}" data-input="filter">
+      <select class="input" data-change="phase-filter">
+        <option value="all" ${app.phaseFilter === 'all' ? 'selected' : ''}>Todas as fases</option>
+        ${PHASE_KINDS.map((k) => `<option value="${k}" ${app.phaseFilter === k ? 'selected' : ''}>${PHASE_LABEL[k]}</option>`).join('')}
+      </select>
       <select class="input" data-change="sort">
         ${[['playlist', 'Ordem da playlist'], ['energy', 'Energia'], ['artist', 'Artista'], ['unrated', 'Não marcadas primeiro']].map(([v, l]) => `<option value="${v}" ${app.sort === v ? 'selected' : ''}>${l}</option>`).join('')}
       </select>
@@ -445,6 +478,24 @@ function renderLive() {
         <a id="lv-open" class="small" target="_blank" rel="noopener" hidden>Abrir no Spotify ↗</a>
       </div>
     </div>
+    <div class="live-metrics" aria-label="Resumo da festa em tempo real">
+      <div class="metric">
+        <span class="metric-label">Fase</span>
+        <strong id="lv-phase-chip">Aquecimento</strong>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Energia alvo</span>
+        <strong id="lv-target-energy">2.0</strong>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Próxima fase</span>
+        <strong id="lv-next-phase">Pico em 20 min</strong>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Fila</span>
+        <strong id="lv-queue-total">0 faixas</strong>
+      </div>
+    </div>
     <div class="controls">
       <button class="ctl" data-act="lv-pause" id="lv-pause" title="Tecla de atalho: Espaço">Pausar <kbd>Espaço</kbd></button>
       <button class="ctl" data-act="lv-skip" id="lv-skip" title="Tecla de atalho: N ou Seta Direita">Pular <kbd>N</kbd></button>
@@ -485,7 +536,14 @@ function updateLive() {
   const elapsed = c.elapsedMin();
   const ph = c.phaseInfo(elapsed);
   const target = c.target(elapsed);
+  const nextPhase = c.party.phases.find((p) => p.startOffsetMin > elapsed) || c.party.phases[c.party.phases.length - 1];
+  const minsToNext = Math.max(0, nextPhase.startOffsetMin - elapsed);
+  const queuePreview = c.preview(5);
   el('lv-phase').textContent = `${PHASE_LABEL[ph.phase.kind]} · energia-alvo ${target.toFixed(1)}${c.live.status === 'paused' ? ' · PAUSADA' : ''}${c.live.status === 'ending' ? ' · encerrando…' : ''}`;
+  el('lv-phase-chip').textContent = PHASE_LABEL[ph.phase.kind];
+  el('lv-target-energy').textContent = `${target.toFixed(1)} / 5`;
+  el('lv-next-phase').textContent = minsToNext > 0 ? `${PHASE_LABEL[nextPhase.kind]} em ${fmtMin(minsToNext)}` : 'Fim da noite';
+  el('lv-queue-total').textContent = queuePreview.length ? `${queuePreview.length} na fila` : 'sem fila';
   el('lv-elapsed').textContent = fmtMin(elapsed);
   el('lv-device').textContent = c.engine.label();
 
@@ -685,8 +743,21 @@ async function loadLibrary() {
       const { tracks } = await S.getPlaylistTracks(p.id);
       if (!tracks.length) failures.push(p.name);
       for (const raw of tracks) {
-        if (seen.has(raw.id)) continue;
-        seen.set(raw.id, applyTags(S.toTrack(raw), p.id));
+        const next = applyTags(S.toTrack(raw), p.id);
+        const existing = seen.get(next.id);
+        if (!existing) {
+          seen.set(next.id, next);
+          continue;
+        }
+        const phaseSet = [...new Set([...(existing.phases || []), ...(next.phases || [])].filter(Boolean))];
+        existing.phases = phaseSet;
+        existing.phase = chooseTrackPhase(phaseSet) || existing.phase || next.phase || null;
+        existing.playlistIds = [...new Set([...(existing.playlistIds || []), ...(next.playlistIds || [])])];
+        existing.playlistId = existing.playlistId || next.playlistId;
+        if ((existing.energySource === 'guess' || existing.energySource === 'playlist') && next.energySource !== 'guess' && next.energySource !== 'playlist') {
+          existing.energy = next.energy;
+          existing.energySource = next.energySource;
+        }
       }
     } catch (e) {
       failures.push(p.name);
@@ -904,7 +975,8 @@ async function syncPartyToServer() {
 
     const reqRes = await fetch('/api/host/requests');
     if (reqRes.ok) {
-      app.guestRequests = (await reqRes.json()) || [];
+      const data = await reqRes.json();
+      app.guestRequests = Array.isArray(data) ? data : (data ? [data] : []);
       const pending = app.guestRequests.filter((r) => r.status === 'pending');
       const badge = $('#guest-req-badge');
       if (badge) {
@@ -915,10 +987,18 @@ async function syncPartyToServer() {
   } catch { /* offline / ignorar */ }
 }
 
-function openGuestRequestsModal() {
-  const c = app.conductor;
-  const host = location.hostname === '127.0.0.1' || location.hostname === 'localhost' ? location.host : location.host;
-  const guestLink = `http://${host}/guest`;
+async function openGuestRequestsModal() {
+  const isLocalHost = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+  let guestLink = `${location.origin}/guest`;
+  if (isLocalHost) {
+    try {
+      const netRes = await fetch('/api/network-info');
+      const netInfo = await netRes.json();
+      if (netInfo?.guestUrl) guestLink = netInfo.guestUrl;
+    } catch {
+      // manter fallback abaixo
+    }
+  }
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(guestLink)}`;
 
   const pending = (app.guestRequests || []).filter((r) => r.status === 'pending');
@@ -930,6 +1010,7 @@ function openGuestRequestsModal() {
       </div>
       <div class="row gap-2">
         <button class="btn primary xs" data-act="guest-play" data-id="${esc(r.trackId)}" data-req="${esc(r.id)}">Tocar agora</button>
+        <button class="btn primary xs" data-act="guest-next" data-id="${esc(r.trackId)}" data-req="${esc(r.id)}">Tocar em seguida</button>
         <button class="btn ghost xs" data-act="guest-decline" data-req="${esc(r.id)}">Dispensar</button>
       </div>
     </div>
@@ -937,7 +1018,7 @@ function openGuestRequestsModal() {
 
   openOverlay(`
     <div class="row between"><h2>📱 Pedidos de Convidados (RF-21)</h2><button class="btn ghost sm" data-act="close">Fechar</button></div>
-    <p class="muted">Convidados no mesmo Wi-Fi podem escanear o QR Code ou acessar o link para buscar músicas e sugerir:</p>
+    <p class="muted">${location.protocol === 'https:' ? 'Convidados no mesmo Wi‑Fi ou em qualquer dispositivo podem escanear o QR Code ou usar o link direto para sugerir músicas.' : 'Convidados no mesmo Wi‑Fi podem escanear o QR Code ou acessar o link para buscar músicas e sugerir:'}</p>
     <div class="row center wrap gap-4" style="margin: 14px 0; background:#14121a; padding:16px; border-radius:14px; text-align:center;">
       <img src="${qrUrl}" alt="QR Code para convidados" style="width:160px; height:160px; border-radius:8px; background:#fff; padding:6px;" onerror="this.style.display='none'">
       <div style="text-align:left; max-width:320px;">
@@ -976,8 +1057,23 @@ document.addEventListener('click', async (ev) => {
     case 'change-client': return go('setup');
     case 'toggle-pl': {
       const id = el.dataset.id;
-      if (app.selected.has(id)) app.selected.delete(id); else app.selected.add(id);
+      if (app.selected.has(id)) {
+        app.selected.delete(id);
+        delete app.playlistPhase[id];
+      } else {
+        app.selected.add(id);
+      }
       store.set('selectedPlaylists', [...app.selected]);
+      store.set('playlistPhase', app.playlistPhase);
+      return render();
+    }
+    case 'bulk-phase': {
+      const phase = el.dataset.phase || null;
+      for (const id of app.playlists.map((p) => p.id)) {
+        if (!app.selected.has(id)) continue;
+        if (phase) app.playlistPhase[id] = phase; else delete app.playlistPhase[id];
+      }
+      store.set('playlistPhase', app.playlistPhase);
       return render();
     }
     case 'reload-pl': return enterSpotify();
@@ -1143,6 +1239,19 @@ document.addEventListener('click', async (ev) => {
       toast('Tocando pedido de convidado!', 'ok');
       return c.playNow(trackId).catch((e) => toast(e.message, 'error'));
     }
+    case 'guest-next': {
+      const trackId = el.dataset.id;
+      const reqId = el.dataset.req;
+      fetch('/api/host/requests/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId: reqId, action: 'queued' }),
+      }).catch(() => {});
+      closeOverlay();
+      toast('Faixa marcada para tocar em seguida.', 'ok');
+      c.playNext(trackId);
+      return;
+    }
     case 'guest-decline': {
       const reqId = el.dataset.req;
       fetch('/api/host/requests/resolve', {
@@ -1224,6 +1333,9 @@ document.addEventListener('change', (ev) => {
       return;
     }
     case 'sort': app.sort = el.value; return render();
+    case 'phase-filter':
+      app.phaseFilter = el.value || 'all';
+      return render();
     case 'device':
       app.device = el.value;
       store.set('lastDevice', app.device);
@@ -1235,6 +1347,17 @@ document.addEventListener('change', (ev) => {
 
 let filterTimer = 0;
 document.addEventListener('input', (ev) => {
+  const clientIdEl = ev.target.closest('#clientId');
+  if (clientIdEl) {
+    const statusEl = document.querySelector('[data-clientid-status]');
+    if (statusEl) {
+      const status = clientIdFeedback(clientIdEl.value);
+      statusEl.textContent = status.text;
+      statusEl.dataset.state = status.ok ? 'ok' : 'error';
+    }
+    return;
+  }
+
   const el = ev.target.closest('[data-input]');
   if (!el) return;
   if (el.dataset.input === 'filter') {
@@ -1258,7 +1381,8 @@ document.addEventListener('submit', (ev) => {
   switch (form.dataset.form) {
     case 'clientId': {
       const v = $('#clientId').value.trim();
-      if (!/^[a-zA-Z0-9]{20,64}$/.test(v)) return toast('Esse Client ID não parece válido. Copie de novo do painel do Spotify.', 'error');
+      const issue = S.getClientIdIssue(v);
+      if (issue) return toast(issue, 'error');
       store.set('clientId', v);
       return S.startLogin().catch((e) => toast(e.message, 'error'));
     }

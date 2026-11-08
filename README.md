@@ -15,20 +15,37 @@ O projeto foi pensado como uma versão de teste de um “condutor musical” e n
 
 ## Como rodar
 
-### Windows (sem instalar nada extra)
+### Node/Express (recomendado)
 
-1. Abra a pasta do projeto.
-2. Clique duas vezes em `INICIAR-PISTA.bat`.
-3. O servidor local abre em `http://127.0.0.1:8888`.
-4. Use Chrome ou Edge.
-5. Para testar sem Spotify, use a opção “Abrir demonstração”.
+```bash
+cd C:\Users\F_Dia\Documents\PISTA\PISTA
+npm install
+npm start
+```
 
-### Manualmente
+O app sobe em `http://127.0.0.1:8888` e serve o painel e a rota de convidados.
+
+### Windows legado
+
+O servidor PowerShell continua disponível como alternativa, mas foi marcado como obsoleto:
 
 ```powershell
 cd C:\Users\F_Dia\Documents\PISTA\PISTA
-powershell -ExecutionPolicy Bypass -File .\servidor.ps1
+npm run start:legacy
 ```
+
+Ou use o atalho `INICIAR-PISTA.bat` para o fluxo antigo localmente.
+
+### Render
+
+1. Crie um Web Service no Render.
+2. Conecte o repositório.
+3. Use:
+   - Build Command: `npm install`
+   - Start Command: `npm start`
+4. Defina a variável de ambiente `PUBLIC_URL` como `https://<app>.onrender.com`.
+5. Cadastre a Redirect URI do Spotify em `https://<app>.onrender.com/callback`.
+6. Mantenha `http://127.0.0.1:8888/callback` para uso local.
 
 ## Estrutura do projeto
 
@@ -106,6 +123,27 @@ Integração opcional com Claude para:
 - Chrome ou Edge;
 - conta Spotify Premium para uso com reprodução real;
 - Node.js para validar testes automatizados.
+
+## Solução rápida para Windows
+
+Se o terminal não reconhecer `node` ou `npm`, normalmente é porque o Node.js ainda não foi adicionado ao `PATH` do sistema.
+
+1. Instale o Node.js LTS em https://nodejs.org/
+2. Reinicie o terminal;
+3. Confirme:
+
+```powershell
+node -v
+npm -v
+```
+
+Se precisar rodar manualmente no PowerShell com o Node instalado em `C:\Program Files\nodejs`:
+
+```powershell
+$env:PATH = "C:\Program Files\nodejs;$env:PATH"
+cd C:\Users\F_Dia\Documents\PISTA\PISTA
+npm test
+```
 
 ## Testes
 
