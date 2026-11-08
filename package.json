@@ -1,0 +1,22 @@
+{
+  "name": "pista",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "start": "powershell -ExecutionPolicy Bypass -File servidor.ps1",
+    "test": "node tests/planner.test.mjs",
+    "test:e2e": "node tests/e2e.mjs",
+    "test:all": "npm run test && npm run test:e2e"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "playwright": "^1.65.0"
+  }
+}

@@ -1,0 +1,102 @@
+PISTA - versao de teste
+=======================
+
+Site de teste do PISTA: voce conecta o Spotify, escolhe uma playlist e o
+PISTA conduz a festa (aquecimento, pico, fim de noite), sempre com a
+proxima musica ja na fila.
+
+Corresponde ao "Caminho A / Modo Condutor" da analise (Parte 02 secao 5A):
+ordena e conduz, mas NAO mixa o audio do Spotify (decisao D-01).
+
+
+COMO RODAR (Windows, sem instalar nada)
+---------------------------------------
+1. De dois cliques em INICIAR-PISTA.bat
+   Abre uma janela preta (o servidor) e o navegador em http://127.0.0.1:8888
+   Deixe essa janela aberta durante a festa. Para desligar, feche-a.
+2. Use Chrome ou Edge no computador.
+   Se o Windows mostrar um aviso de seguranca, clique em "Mais informacoes"
+   e depois em "Executar assim mesmo".
+3. Para ver como funciona sem Spotify: clique em "Abrir demonstracao".
+
+
+CONFIGURAR O SPOTIFY (uma vez so, 5 minutos)
+--------------------------------------------
+Precisa de conta Spotify PREMIUM (o Spotify exige Premium para controlar
+a reproducao, e o dono do app de desenvolvedor tambem precisa ser Premium).
+
+1. Entre em https://developer.spotify.com/dashboard e clique em "Create app".
+2. Nome e descricao: qualquer coisa (ex.: PISTA teste).
+3. Redirect URI: cole EXATAMENTE
+      http://127.0.0.1:8888/callback
+   (nao use "localhost": o Spotify nao aceita mais)
+4. Marque "Web API" e "Web Playback SDK". Aceite os termos e salve.
+5. Em "User Management", adicione o e-mail Spotify de cada amigo que vai
+   testar. No modo de desenvolvimento o limite e de poucas pessoas
+   (5 usuarios por app, pelas regras de fev/2026).
+6. Copie o "Client ID" e cole na tela inicial do PISTA.
+
+
+COMO USAR NA FESTA
+------------------
+1. Escolha uma ou mais playlists. Se tiver uma playlist por momento, marque
+   a fase de cada uma (ex.: "So no Pico").
+   IMPORTANTE: desde 2026 o Spotify so libera as musicas de playlists SUAS
+   ou COLABORATIVAS. Playlists do proprio Spotify ou de outras pessoas nao
+   carregam - copie as musicas para uma playlist sua.
+2. "Montar a noite": duracao, auge da festa e as 3 fases (com o grafico da
+   curva de energia). De nota de energia 1 a 5 as musicas (comeca com um
+   palpite; suas notas ficam salvas para as proximas festas).
+3. "Onde tocar": este navegador (recomendado: notebook na tomada, ligado
+   por cabo na caixa de som) ou um aparelho com o app do Spotify aberto.
+4. Antes de comecar, deixe a fila do Spotify vazia.
+5. "Comecar a festa". Controles: Pausar, Pular, Mais energia, Menos
+   energia, Tocar agora, Nunca mais esta, Transicao ruim, Encerrar.
+6. No fim: resumo, 3 perguntas e "Exportar log (JSON)" para as metricas
+   da Parte 01 secao 8 (intervencoes por hora, transicoes ruins etc.).
+Se a pagina recarregar no meio da festa, ela oferece "Retomar".
+
+
+ONDE ENTRA A IA
+---------------
+- O "DJ" e o planejador deterministico da analise (Parte 03 secao 4): curva de
+  energia por fase, pontuacao por musica e busca em feixe com semente.
+  Funciona sem internet de IA e nao envia nada a ninguem.
+- OPCIONAL (Configuracoes > chave da API da Anthropic):
+  a) "Descrever a noite para o Claude": envia SO o texto que voce escreve e
+     recebe as fases. Permitido pela analise (Parte 03 secao 7.3).
+  b) MODO EXPERIMENTAL (desligado por padrao): o Claude le titulo, artista
+     e ano das faixas e estima energia e genero. Isso CONTRARIA a decisao
+     D-05 da analise (pendencia juridica J-01: termos do Spotify sobre usar
+     metadados em IA). Use so em teste interno; suas notas manuais nunca
+     sao sobrescritas.
+  Modelo padrao: claude-haiku-5-5 (o mais rapido e barato). A chave fica
+  salva so no seu navegador; use uma chave de teste com limite de gasto.
+
+
+LIMITACOES CONHECIDAS (de proposito, ver analise)
+------------------------------------------------
+- Sem mixagem, beatmatching ou analise de audio do Spotify (D-01, R01).
+- O Spotify nao fornece mais BPM/energia para apps novos: a energia vem
+  da sua nota (ou do Claude, no modo experimental).
+- A fila do Spotify nao pode ser reordenada nem esvaziada pela API: o PISTA
+  coloca so 1 musica a frente. "Mais energia" vale a partir da 2a proxima.
+- Transicoes suaves dependem do crossfade do proprio Spotify no aparelho.
+- Versao de teste: o login fica guardado no navegador (sem servidor).
+  Na versao de producao a analise pede um BFF (Parte 03, RNF-06).
+- Uso privado, nao comercial, festas em casa (Parte 02 secao 4).
+
+
+ARQUIVOS
+--------
+INICIAR-PISTA.bat     abre o servidor e o navegador
+servidor.ps1          servidor local minimo (PowerShell, ja vem no Windows)
+site\                 o site (HTML, CSS e JavaScript, sem dependencias)
+  js\planner.js       o DJ: fases, curva de energia, escolha da proxima
+  js\conductor.js     controlador da festa, fila, recuperacao, log
+  js\playback.js      player do Spotify (navegador ou outro aparelho) e demo
+  js\spotify.js       login PKCE e chamadas a Web API
+  js\claude.js        Claude opcional (intencao e modo experimental)
+tests\                testes automatizados (precisam de Node.js):
+  node tests\planner.test.mjs
+  node tests\e2e.mjs   (com o servidor ligado; precisa do Playwright)

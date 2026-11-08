@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PISTA · Pedir Música</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { background: #0c0b0f; color: #f0edf5; font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 16px; }
+    .guest-header { text-align: center; margin-bottom: 20px; }
+    .guest-header h1 { font-size: 26px; margin: 6px 0; }
+    .now-banner { background: #1a1820; border: 1px solid #2e2a36; border-radius: 14px; padding: 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; }
+    .now-banner .thumb { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; }
+    .search-box { position: sticky; top: 12px; z-index: 10; margin-bottom: 16px; }
+    .search-input { width: 100%; box-sizing: border-box; background: #16141c; border: 1px solid #363242; border-radius: 12px; padding: 12px 14px; font-size: 16px; color: #fff; }
+    .track-item { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: center; background: #141318; border: 1px solid #221f29; border-radius: 12px; padding: 10px; margin-bottom: 8px; }
+    .track-item .thumb { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; }
+    .track-item .info h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+    .track-item .info p { margin: 0; font-size: 13px; color: #a49eaf; }
+    .btn-suggest { background: var(--accent); color: #1a0b07; border: 0; padding: 8px 14px; font-weight: 700; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .btn-suggest:disabled { background: #2f2a36; color: #6b6475; cursor: default; }
+    .btn-suggest.sent { background: #2ec4b6; color: #042421; }
+    .my-requests { margin-top: 24px; padding: 14px; background: #16141c; border-radius: 12px; border: 1px solid #2c2836; }
+    .my-requests h3 { margin: 0 0 10px; font-size: 15px; }
+  </style>
+</head>
+<body>
+  <header class="guest-header">
+    <div style="display:inline-flex; align-items:center; gap:8px;">
+      <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true" fill="var(--accent)"><rect x="2" y="18" width="5" height="12" rx="2"/><rect x="10" y="10" width="5" height="20" rx="2"/><rect x="18" y="4" width="5" height="26" rx="2"/><rect x="26" y="14" width="5" height="16" rx="2"/></svg>
+      <span style="font-weight:800; font-size:18px; letter-spacing:1px;">PISTA</span>
+    </div>
+    <h1 id="party-name">Festa</h1>
+    <p style="color:#a49eaf; font-size:14px; margin:0;">Peça uma música que combine com o momento da festa!</p>
+  </header>
+
+  <section class="now-banner" id="now-box" style="display:none;">
+    <img id="now-cover" class="thumb" src="favicon.svg" alt="">
+    <div style="flex:1; min-width:0;">
+      <div style="font-size:11px; text-transform:uppercase; color:var(--accent); font-weight:700;" id="now-phase">Tocando Agora</div>
+      <div style="font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="now-title">—</div>
+      <div style="font-size:13px; color:#a49eaf; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="now-artist">—</div>
+    </div>
+  </section>
+
+  <div class="search-box">
+    <input type="search" class="search-input" id="q" placeholder="Buscar nas músicas da festa…">
+  </div>
+
+  <div id="track-list">
+    <p style="text-align:center; color:#857e91; padding:20px;">Carregando músicas da festa…</p>
+  </div>
+
+  <div class="my-requests" id="my-reqs-box" style="display:none;">
+    <h3>Seus pedidos pendentes (<span id="req-count">0</span>/3)</h3>
+    <ul id="req-list" style="margin:0; padding-left:20px; font-size:14px; color:#c6c0d0;"></ul>
+  </div>
+
+  <div id="toasts" class="toasts"></div>
+
+  <script>
+    const GUEST_KEY = 'pista_guest_token';
+    let guestToken = localStorage.getItem(GUEST_KEY);
+    if (!guestToken) {
+      guestToken = Math.random().toString(36).slice(2, 10);
+      localStorage.setItem(GUEST_KEY, guestToken);
+    }
+
+    let allTracks = [];
+    let mySuggestedIds = new Set(JSON.parse(localStorage.getItem('pista_my_suggested') || '[]'));
+
+    function toast(msg, kind = 'ok') {
+      const el = document.createElement('div');
+      el.className = `toast ${kind}`;
+      el.textContent = msg;
+      document.getElementById('toasts').appendChild(el);
+      setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, 3500);
+    }
+
+    async function loadCatalog() {
+      try {
+        const res = await fetch('/api/party/catalog');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.partyName) document.getElementById('party-name').textContent = data.partyName;
+
+        if (data.current) {
+          document.getElementById('now-box').style.display = 'flex';
+          document.getElementById('now-title').textContent = data.current.title;
+          document.getElementById('now-artist').textContent = data.current.artist;
+          if (data.current.image) document.getElementById('now-cover').src = data.current.image;
+          document.getElementById('now-phase').textContent = `Tocando agora · ${data.phase || ''}`;
+        }
+
+        if (data.tracks && data.tracks.length) {
+          allTracks = data.tracks;
+          renderList();
+        }
+      } catch (e) {
+        console.warn('catalogo', e);
+      }
+    }
+
+    function renderList() {
+      const q = document.getElementById('q').value.trim().toLowerCase();
+      const filtered = allTracks.filter(t => !q || `${t.title} ${t.artist}`.toLowerCase().includes(q)).slice(0, 50);
+
+      const html = filtered.map(t => {
+        const sent = mySuggestedIds.has(t.id);
+        return `
+        <div class="track-item">
+          <img src="${t.image || 'favicon.svg'}" class="thumb" alt="">
+          <div class="info">
+            <h3>${t.title}</h3>
+            <p>${t.artist}</p>
+          </div>
+          <button class="btn-suggest ${sent ? 'sent' : ''}" data-id="${t.id}" data-title="${encodeURIComponent(t.title)}" data-artist="${encodeURIComponent(t.artist)}" ${sent ? 'disabled' : ''}>
+            ${sent ? 'Sugerido ✓' : 'Sugerir'}
+          </button>
+        </div>`;
+      }).join('');
+
+      document.getElementById('track-list').innerHTML = html || '<p style="text-align:center; color:#857e91; padding:20px;">Nenhuma música encontrada.</p>';
+    }
+
+    document.getElementById('q').addEventListener('input', renderList);
+
+    document.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('.btn-suggest');
+      if (!btn || btn.disabled) return;
+
+      const trackId = btn.dataset.id;
+      const title = decodeURIComponent(btn.dataset.title);
+      const artist = decodeURIComponent(btn.dataset.artist);
+
+      btn.disabled = true;
+      btn.textContent = 'Enviando…';
+
+      try {
+        const res = await fetch('/api/guest/suggest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trackId, title, artist, guestToken })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          toast(`"${title}" sugerida ao anfitrião!`, 'ok');
+          btn.classList.add('sent');
+          btn.textContent = 'Sugerido ✓';
+          mySuggestedIds.add(trackId);
+          localStorage.setItem('pista_my_suggested', JSON.stringify([...mySuggestedIds]));
+          updateMyRequests(title);
+        } else {
+          toast(data.error || 'Não foi possível enviar.', 'warn');
+          btn.disabled = false;
+          btn.textContent = 'Sugerir';
+        }
+      } catch (e) {
+        toast('Erro de conexão ao enviar pedido.', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Sugerir';
+      }
+    });
+
+    function updateMyRequests(newTitle = '') {
+      const box = document.getElementById('my-reqs-box');
+      const list = document.getElementById('req-list');
+      const countEl = document.getElementById('req-count');
+      const saved = JSON.parse(localStorage.getItem('pista_my_titles') || '[]');
+      if (newTitle && !saved.includes(newTitle)) saved.push(newTitle);
+      localStorage.setItem('pista_my_titles', JSON.stringify(saved));
+
+      if (saved.length) {
+        box.style.display = 'block';
+        countEl.textContent = saved.length;
+        list.innerHTML = saved.map(s => `<li>${s}</li>`).join('');
+      }
+    }
+
+    loadCatalog();
+    setInterval(loadCatalog, 6000);
+    updateMyRequests();
+  </script>
+</body>
+</html>

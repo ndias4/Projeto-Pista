@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PISTA · versão de teste</title>
+  <meta name="description" content="PISTA: condutor musical para festas em casa (versão de teste).">
+  <meta name="theme-color" content="#0e0d10">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" data-act="home" aria-label="PISTA, início">
+      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect x="2" y="18" width="5" height="12" rx="2"/><rect x="10" y="10" width="5" height="20" rx="2"/><rect x="18" y="4" width="5" height="26" rx="2"/><rect x="26" y="14" width="5" height="16" rx="2"/></svg>
+      <span>PISTA</span><small>teste</small>
+    </a>
+    <nav class="topnav">
+      <span id="who" class="who"></span>
+      <button class="btn ghost sm" data-act="settings" aria-label="Configurações">Configurações</button>
+    </nav>
+  </header>
+  <main id="app" tabindex="-1"></main>
+  <div id="overlay" class="overlay" hidden></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <footer class="foot">
+    Versão de teste para uso privado entre amigos · Conteúdo musical fornecido pelo Spotify · O PISTA não mixa nem altera o áudio do Spotify.
+  </footer>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
