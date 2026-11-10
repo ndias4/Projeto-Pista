@@ -5,12 +5,13 @@ import { defaultPhases, validatePhases, targetEnergy, phaseAt, guessFromTitle, P
 import { Conductor, APP_VERSION } from './conductor.js';
 import { SpotifyEngine, DemoEngine, LocalAudioEngine } from './playback.js';
 import { demoLibrary } from './demo.js';
-import { claudeSettings, interpretIntent, estimateTracks, DEFAULT_MODEL } from './claude.js';
+import { claudeSettings, aiSettings, interpretIntent, estimateTracks, DEFAULT_MODEL, AI_PROVIDERS, getAiProviderMeta } from './claude.js';
 import { parseAudioTags } from './audio.js';
+import { ENERGY_LABELS, scoresToEnergy } from './ai-energy.js';
 
 const EXPECTED_ORIGIN = 'http://127.0.0.1:8888';
 const ENERGY_WORDS = ['', 'Calma', 'Leve', 'Média', 'Animada', 'Pista cheia'];
-const SRC_LABEL = { host: 'você', guess: 'palpite', playlist: 'fase da playlist', claude: 'Claude', demo: 'demo', local: 'arquivo local' };
+const SRC_LABEL = { host: 'você', guess: 'palpite', playlist: 'fase da playlist', claude: 'Claude', 'audio-ai': 'IA (áudio)', demo: 'demo', local: 'arquivo local' };
 
 const app = {
   screen: 'loading',
@@ -34,6 +35,7 @@ const app = {
   demoSpeed: 30,
   intentNotes: '',
   guestRequests: [],
+  localAiCancel: null,
 };
 
 // ---------------- utilidades ----------------
@@ -101,7 +103,8 @@ function applyTags(track, playlistId = null) {
   const guess = guessFromTitle(track.title);
   let energy = guess.energy, src = 'guess';
   if (phase) { energy = PHASE_DEFAULT_ENERGY[phase]; src = 'playlist'; }
-  if (t.energy && (t.src === 'claude' || t.src === 'host')) { energy = t.energy; src = t.src; }
+  if (t.energy && t.src === 'host') { energy = t.energy; src = t.src; }
+  else if (t.energy && (t.src === 'claude' || t.src === 'audio-ai')) { energy = t.energy; src = t.src; }
   return {
     ...track, playlistId, phase,
     phases: phase ? [phase] : [],
@@ -117,6 +120,150 @@ function saveLibrary() {
   if (app.demo) return;
   // guarda só o necessário para retomar a festa depois de recarregar
   store.set('library', app.library.map(({ imageLarge, ...t }) => t));
+}
+
+function mixToMono(audioBuffer) {
+  const channelCount = audioBuffer.numberOfChannels;
+  const length = audioBuffer.length;
+  const mono = new Float32Array(length);
+  if (channelCount === 1) {
+    mono.set(audioBuffer.getChannelData(0));
+    return mono;
+  }
+  const ch0 = audioBuffer.getChannelData(0);
+  const ch1 = audioBuffer.getChannelData(1);
+  for (let i = 0; i < length; i++) {
+    mono[i] = (ch0[i] + (channelCount > 1 ? ch1[i] : ch0[i])) / 2;
+  }
+  return mono;
+}
+
+function extractEnergyWindows(monoSamples, durationSec) {
+  const sampleRate = 48000;
+  const windowSeconds = 10;
+  const windowSamples = Math.max(1, Math.floor(sampleRate * windowSeconds));
+  if (!monoSamples || !monoSamples.length) return [];
+
+  const points = durationSec < 25 ? [Math.max(0, (monoSamples.length / 2) - (windowSamples / 2))] : [durationSec * 0.35, durationSec * 0.65];
+  const windows = [];
+  for (const seconds of points) {
+    const start = Math.max(0, Math.min(monoSamples.length - 1, Math.floor(seconds * sampleRate)));
+    const end = Math.min(monoSamples.length, start + windowSamples);
+    const frame = monoSamples.subarray(start, end);
+    if (frame.length) windows.push(new Float32Array(frame));
+  }
+  if (!windows.length) windows.push(new Float32Array(monoSamples.slice(0, Math.min(windowSamples, monoSamples.length))));
+  return windows;
+}
+
+async function decodeLocalAudioFile(file) {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) throw new Error('Este navegador não suporta Web Audio para estimar a energia pelo áudio.');
+  const ctx = new AudioCtx({ sampleRate: 48000 });
+  try {
+    const decoded = await ctx.decodeAudioData(await file.arrayBuffer());
+    const mono = mixToMono(decoded);
+    const windows = extractEnergyWindows(mono, decoded.duration);
+    return { durationMs: Math.round(decoded.duration * 1000), windows, sampleRate: decoded.sampleRate };
+  } finally {
+    try { await ctx.close(); } catch { /* ignore */ }
+  }
+}
+
+async function estimateLocalAudioTracks(tracks, onProgress = () => {}, onCancel = () => {}) {
+  if (!('Worker' in window)) {
+    throw new Error('Este navegador não suporta workers em módulo, então a IA local não pode rodar aqui.');
+  }
+
+  const worker = new Worker(new URL('./ai-worker.js', import.meta.url), { type: 'module' });
+  const resultMap = new Map();
+  const errors = [];
+  let cancelled = false;
+
+  const finalizer = () => {
+    worker.onmessage = null;
+    try { worker.terminate(); } catch { /* ignore */ }
+  };
+
+  const cancelFn = () => {
+    cancelled = true;
+    finalizer();
+  };
+  onCancel(cancelFn);
+
+  worker.onmessage = (event) => {
+    const message = event.data || {};
+    if (!message || typeof message !== 'object') return;
+    if (message.type === 'progress') {
+      onProgress({ stage: 'download', progress: message.progress || null });
+      return;
+    }
+    if (message.type === 'result') {
+      resultMap.set(message.id, { energy: Number(message.energy), confidence: Number(message.confidence || 0), scores: message.scores || {} });
+      onProgress({ stage: 'track', result: message, processed: resultMap.size });
+      return;
+    }
+    if (message.type === 'error') {
+      errors.push(message.message || 'Falha ao analisar a faixa.');
+      onProgress({ stage: 'track', error: message.message || 'Falha ao analisar a faixa.', processed: resultMap.size });
+    }
+  };
+
+  try {
+    for (let i = 0; i < tracks.length; i++) {
+      if (cancelled) break;
+      const track = tracks[i];
+      if (!track?._file || !(track._file instanceof File)) {
+        errors.push(`Faixa sem arquivo: ${track?.title || 'desconhecida'}`);
+        continue;
+      }
+      onProgress({ stage: 'track-start', index: i + 1, total: tracks.length, title: track.title || 'Faixa' });
+      const decoded = await decodeLocalAudioFile(track._file);
+      const windows = decoded.windows || [];
+      if (!windows.length) {
+        errors.push(`Não foi possível analisar: ${track.title || 'faixa'}`);
+        continue;
+      }
+      track.durationMs = decoded.durationMs;
+      const handle = await new Promise((resolve, reject) => {
+        const onMessage = (event) => {
+          const message = event.data || {};
+          if (!message || typeof message !== 'object') return;
+          if (message.type === 'result' && message.id === track.id) {
+            worker.removeEventListener('message', onMessage);
+            resolve(message);
+            return;
+          }
+          if (message.type === 'error' && message.id === track.id) {
+            worker.removeEventListener('message', onMessage);
+            reject(new Error(message.message || 'Erro ao analisar a faixa.'));
+            return;
+          }
+        };
+        worker.addEventListener('message', onMessage);
+        worker.postMessage({ type: 'estimate', id: track.id, windows }, windows.map((window) => window.buffer));
+      }).catch((error) => {
+        errors.push(error?.message || 'Falha ao analisar a faixa.');
+        return null;
+      });
+
+      if (handle && typeof handle.energy === 'number') {
+        track.energy = Number(handle.energy);
+        track.energySource = 'audio-ai';
+        track.genre = track.genre || null;
+        if (!app.demo) saveTag(track.id, { energy: track.energy, src: 'audio-ai' }, track);
+      }
+      onProgress({ stage: 'track-done', index: i + 1, total: tracks.length, title: track.title || 'Faixa' });
+    }
+  } catch (error) {
+    if (String(error?.message || '').toLowerCase() !== 'cancelled') {
+      errors.push(error?.message || 'Falha ao estimar energia com IA local.');
+    }
+  } finally {
+    finalizer();
+  }
+
+  return { results: resultMap, errors };
 }
 
 // ---------------- render ----------------
@@ -367,11 +514,11 @@ function renderNight() {
         </div>`).join('')}
     </div>
     <details class="claude-box" ${app.intentNotes ? 'open' : ''}>
-      <summary>Descrever a noite para o Claude (opcional)</summary>
-      <p class="muted small">Envia <strong>só o texto abaixo</strong> para a Anthropic (nenhum dado do Spotify). O Claude devolve as fases e você revisa antes de usar.</p>
+      <summary>Descrever a noite para a IA (opcional)</summary>
+      <p class="muted small">Envia <strong>só o texto abaixo</strong> para o provedor selecionado em Configurações. A IA devolve as fases e você revisa antes de usar.</p>
       <textarea id="intent" class="input" rows="2" placeholder="Ex.: começa bem leve no churrasco, pico à meia-noite com funk e pagode, fim tranquilo">${esc(store.get('intentText', ''))}</textarea>
-      <div class="row"><button class="btn sm" data-act="intent" ${cs.key ? '' : 'disabled'}>Pedir plano ao Claude</button>
-      ${cs.key ? '' : '<span class="muted small">Coloque sua chave da API do Claude em Configurações.</span>'}</div>
+      <div class="row"><button class="btn sm" data-act="intent" ${cs.key ? '' : 'disabled'}>Pedir plano ao ${getAiProviderMeta(cs.provider).label.split(' ')[0]}</button>
+      ${cs.key ? '' : `<span class="muted small">Coloque sua chave da API do ${getAiProviderMeta(cs.provider).label} em Configurações.</span>`}</div>
       ${app.intentNotes ? `<p class="note">${esc(app.intentNotes)}</p>` : ''}
     </details>
   </section>
@@ -386,6 +533,11 @@ function renderNight() {
       <div class="alert exp">
         <strong>Modo experimental ligado.</strong> Este botão envia título, artista e ano das faixas para o Claude estimar energia e gênero. Isso contraria a decisão D-05 da análise (pendente de parecer jurídico): use só em teste interno. Suas notas manuais não são sobrescritas.
         <div class="row"><button class="btn sm" data-act="claude-estimate">Estimar energia com Claude</button><span id="est-progress" class="muted small"></span></div>
+      </div>` : ''}
+    ${app.sourceKind === 'local' ? `
+      <div class="alert exp">
+        <strong>IA local no navegador.</strong> O modelo será baixado uma vez e fica salvo neste navegador; nada sai do seu computador. Recomendado em notebook na tomada.
+        <div class="row"><button class="btn sm" data-act="ai-local-estimate">Estimar energia pelo áudio (IA local)</button><span id="ai-local-progress" class="muted small"></span></div>
       </div>` : ''}
     <div class="row wrap toolbar">
       <input class="input grow" type="search" placeholder="Filtrar por título, artista ou gênero" value="${esc(app.filter)}" data-input="filter">
@@ -673,19 +825,24 @@ function renderResume() {
 
 // ---------------- configurações ----------------
 function openSettings() {
-  const cs = claudeSettings();
+  const cs = aiSettings();
+  const selectedMeta = getAiProviderMeta(cs.provider);
+  const providerOptions = AI_PROVIDERS.map((provider) => `<option value="${provider.value}" ${provider.value === cs.provider ? 'selected' : ''}>${provider.label}</option>`).join('');
   openOverlay(`
     <div class="row between"><h2>Configurações</h2><button class="btn ghost sm" data-act="close">Fechar</button></div>
     <form data-form="settings" class="stack">
       <h3>Spotify</h3>
       <label>Client ID do app de desenvolvedor<input class="input" name="clientId" value="${esc(S.getClientId())}" autocomplete="off" spellcheck="false"></label>
       <p class="muted small">Redirect URI cadastrado no Spotify: <code>${esc(S.REDIRECT_URI)}</code></p>
-      <h3>Claude (opcional)</h3>
-      <label>Chave da API da Anthropic<input class="input" name="anthropicKey" type="password" value="${esc(cs.key)}" placeholder="sk-ant-…" autocomplete="off"></label>
+      <h3>IA (opcional)</h3>
+      <label>Provedor de IA
+        <select class="input" name="aiProvider">${providerOptions}</select>
+      </label>
+      <label data-ai-key-label>${selectedMeta.apiLabel}<input class="input" name="aiKey" type="password" value="${esc(cs.key)}" placeholder="${esc(selectedMeta.placeholder)}" autocomplete="off"></label>
       <p class="muted small">Fica salva só neste navegador. Use uma chave de teste com limite de gasto.</p>
-      <label>Modelo<input class="input" name="anthropicModel" value="${esc(cs.model)}" placeholder="${DEFAULT_MODEL}"></label>
+      <label>Modelo<input class="input" name="aiModel" value="${esc(cs.model)}" placeholder="${esc(selectedMeta.defaultModel)}"></label>
       <label class="check"><input type="checkbox" name="experimental" ${cs.experimental ? 'checked' : ''}>
-        <span><strong>Modo experimental:</strong> deixar o Claude ler título e artista das faixas do Spotify para estimar energia. Contraria a decisão D-05 da análise (pendente de parecer jurídico sobre os termos do Spotify). Só para testes internos.</span></label>
+        <span><strong>Modo experimental:</strong> deixar a IA ler título e artista das faixas do Spotify para estimar energia. Contraria a decisão D-05 da análise (pendente de parecer jurídico sobre os termos do Spotify). Só para testes internos.</span></label>
       <div class="row end"><button class="btn primary">Salvar</button></div>
     </form>
     <hr>
@@ -695,6 +852,20 @@ function openSettings() {
       <button class="btn danger sm" data-act="wipe">Excluir todos os dados do PISTA</button>
     </div>
     <p class="muted small">Versão ${APP_VERSION}. Tudo (notas de energia, festas, logs, acesso ao Spotify) fica só neste navegador.</p>`);
+
+  setTimeout(() => {
+    const providerSelect = $('[name="aiProvider"]');
+    const keyLabel = $('[data-ai-key-label]');
+    const keyInput = $('[name="aiKey"]');
+    if (!providerSelect || !keyLabel || !keyInput) return;
+    const syncProviderLabel = () => {
+      const selected = getAiProviderMeta(providerSelect.value);
+      keyLabel.innerHTML = `${esc(selected.apiLabel)}<input class="input" name="aiKey" type="password" value="${esc(cs.key)}" placeholder="${esc(selected.placeholder)}" autocomplete="off">`;
+      const modelInput = $('[name="aiModel"]');
+      if (modelInput) modelInput.placeholder = selected.defaultModel;
+    };
+    providerSelect.addEventListener('change', syncProviderLabel);
+  }, 10);
 }
 
 // ---------------- fluxos ----------------
@@ -1152,6 +1323,71 @@ document.addEventListener('click', async (ev) => {
       }, true);
       return;
     }
+    case 'ai-local-estimate': {
+      if (app.sourceKind !== 'local') return toast('A IA local funciona só quando a biblioteca foi importada localmente.', 'warn');
+      const todo = app.library.filter((t) => t.energySource !== 'host' && !!t._file);
+      if (!todo.length) return toast('Todas as faixas locais já têm nota sua ou não têm arquivo de áudio.', 'info');
+      const progressLabel = $('#ai-local-progress');
+      const openProgress = (text) => {
+        if (progressLabel) progressLabel.textContent = text;
+        openOverlay(`
+          <h2>IA local</h2>
+          <p>${esc(text)}</p>
+          <div class="row end"><button class="btn ghost sm" data-act="cancel-local-ai">Cancelar</button></div>
+        `, 'small');
+      };
+      let cancelled = false;
+      let workerCancel = null;
+      confirmBox('Baixar e rodar o modelo local?', 'O modelo será baixado uma vez (algumas centenas de MB) e fica salvo neste navegador. Nada sai do seu computador. Recomendado em notebook na tomada.', 'Continuar', async () => {
+        try {
+          const results = await estimateLocalAudioTracks(todo, ({ stage, progress, result, index, total, error, title }) => {
+            if (stage === 'download' && progress) {
+              const pct = typeof progress === 'object' && 'progress' in progress ? progress.progress : progress;
+              openProgress(`Baixando o modelo… ${typeof pct === 'number' ? `${Math.round(pct * 100)}%` : 'aguarde'}`);
+            }
+            if (stage === 'track-start') {
+              openProgress(`Analisando ${index}/${total}: ${title || 'faixa'}`);
+            }
+            if (stage === 'track-done') {
+              if (progressLabel) progressLabel.textContent = `${index}/${total} faixas`;
+              openProgress(`Analisando ${index}/${total}: ${title || 'faixa'}…`);
+            }
+            if (stage === 'track' && result) {
+              if (progressLabel) progressLabel.textContent = `${result.id ? 'ok' : '…'} ${index || ''}`;
+            }
+            if (error) toast(error, 'error', 6000);
+          }, () => {
+            workerCancel = () => {
+              cancelled = true;
+              closeOverlay();
+              toast('Análise cancelada.', 'info', 3000);
+            };
+            app.localAiCancel = workerCancel;
+          });
+          if (cancelled) return;
+          let changed = 0;
+          for (const t of app.library) {
+            const r = results.results.get(t.id);
+            if (!r || t.energySource === 'host') continue;
+            t.energy = Number(r.energy);
+            t.energySource = 'audio-ai';
+            if (!app.demo) saveTag(t.id, { energy: t.energy, src: 'audio-ai' }, t);
+            changed++;
+          }
+          saveLibrary();
+          render();
+          if (results.errors.length) toast(`IA local estimou ${changed} faixas. ${results.errors.length} não puderam ser analisadas.`, 'warn', 8000);
+          else toast(`IA local estimou ${changed} faixas. Revise o que achar estranho.`, 'ok', 7000);
+        } catch (e) {
+          if (String(e?.message || '').toLowerCase() !== 'cancelled') toast(e.message || 'Não foi possível estimar a energia por áudio.', 'error', 8000);
+        } finally {
+          app.localAiCancel = null;
+          closeOverlay();
+          if (progressLabel) progressLabel.textContent = '';
+        }
+      }, true);
+      return;
+    }
     case 'start': return startParty();
     // ao vivo
     case 'lv-pause': return c.live.status === 'paused' ? c.resume() : c.pause();
@@ -1388,9 +1624,16 @@ document.addEventListener('submit', (ev) => {
     }
     case 'settings': {
       const cid = String(fd.get('clientId') || '').trim();
+      const provider = String(fd.get('aiProvider') || 'claude');
+      const key = String(fd.get('aiKey') || '').trim();
+      const model = String(fd.get('aiModel') || '').trim();
       if (cid && cid !== S.getClientId()) { store.set('clientId', cid); S.logout(); }
-      store.set('anthropicKey', String(fd.get('anthropicKey') || '').trim());
-      store.set('anthropicModel', String(fd.get('anthropicModel') || '').trim() || DEFAULT_MODEL);
+      store.set('aiProvider', provider);
+      store.set('aiKey', key);
+      store.set('aiModel', model || getAiProviderMeta(provider).defaultModel);
+      store.set('anthropicProvider', provider);
+      store.set('anthropicKey', key);
+      store.set('anthropicModel', model || getAiProviderMeta(provider).defaultModel);
       store.set('experimentalAi', fd.get('experimental') === 'on');
       closeOverlay();
       toast('Configurações salvas.', 'ok');

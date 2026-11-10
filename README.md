@@ -111,11 +111,13 @@ Autenticação e integração com a Web API do Spotify, incluindo fluxo PKCE.
 
 ### `site/js/claude.js`
 
-Integração opcional com Claude para:
+Integração opcional com IA para:
 
 - interpretar a intenção do anfitrião;
 - sugerir fases da noite;
 - estimar energia e gênero em modo experimental.
+
+A configuração agora aceita provedor selecionado em menu dropdown (Claude, Gemini, OpenAI/ChatGPT ou Haikai), com campo de chave e modelo abaixo. A integração real continua priorizando o provedor ativo e mantém compatibilidade com o fluxo Claude atual.
 
 ## Requisitos
 
@@ -152,6 +154,18 @@ cd C:\Users\F_Dia\Documents\PISTA\PISTA
 node tests\planner.test.mjs
 node tests\e2e.mjs
 ```
+
+## IA local (opcional)
+
+No modo de importação de arquivos locais (`app.sourceKind === 'local'`), o PISTA pode estimar a energia de cada faixa diretamente no navegador com um modelo de áudio local do Hugging Face.
+
+- Modelo usado: `Xenova/clap-htsat-unfused` via `@huggingface/transformers` em um worker em módulo.
+- O processamento acontece no próprio navegador: o modelo é baixado na primeira vez e fica em cache local do navegador.
+- O app não envia áudio para servidor nem precisa de chave de API.
+- Só funciona com bibliotecas locais importadas do disco; o modo Spotify continua sem acesso ao áudio.
+- A nota do anfitrião sempre prevalece. A IA local só pode preencher faixas sem override do host.
+
+Essa opção é totalmente opcional e não bloqueia o fluxo principal do app.
 
 ## Observações importantes
 

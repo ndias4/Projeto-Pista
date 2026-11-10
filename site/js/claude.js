@@ -7,22 +7,105 @@
 import { store } from './store.js';
 import { GENRES, validatePhases, PHASE_KINDS } from './planner.js';
 
+export const AI_PROVIDERS = [
+  { value: 'claude', label: 'Claude (Anthropic)', apiLabel: 'Chave da API da Anthropic', placeholder: 'sk-ant-…', defaultModel: 'claude-haiku-5-5' },
+  { value: 'gemini', label: 'Gemini (Google)', apiLabel: 'Chave da API do Gemini', placeholder: 'AIza…', defaultModel: 'gemini-3.8-flash' },
+  { value: 'openai', label: 'OpenAI / ChatGPT', apiLabel: 'Chave da API da OpenAI', placeholder: 'sk-…', defaultModel: 'gpt-4o-mini' },
+  { value: 'haikai', label: 'Haikai', apiLabel: 'Chave da API do Haikai', placeholder: '…', defaultModel: 'haikai-default' },
+];
+
+export const DEFAULT_PROVIDER = 'claude';
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
 
-export function claudeSettings() {
+export function getAiProviderMeta(provider = DEFAULT_PROVIDER) {
+  return AI_PROVIDERS.find((entry) => entry.value === provider) || AI_PROVIDERS[0];
+}
+
+function normalizeProviderModel(provider, value) {
+  if (provider !== 'gemini') return value || getAiProviderMeta(provider).defaultModel;
+  const raw = String(value || '').trim();
+  if (!raw) return getAiProviderMeta(provider).defaultModel;
+  const cleaned = raw.replace(/^models\//i, '').replace(/^gemini\//i, '').replace(/\s+/g, '');
+  if (cleaned.includes('2.5-flash') || cleaned.includes('2.0-flash') || cleaned.includes('1.5-flash') || cleaned.includes('gemini-')) {
+    if (cleaned.includes('3.8-flash')) return 'gemini-3.8-flash';
+    return 'gemini-3.8-flash';
+  }
+  return cleaned || getAiProviderMeta(provider).defaultModel;
+}
+
+export function aiSettings() {
+  const provider = store.get('aiProvider', store.get('anthropicProvider', DEFAULT_PROVIDER));
+  const supportedProvider = AI_PROVIDERS.some((entry) => entry.value === provider) ? provider : DEFAULT_PROVIDER;
+  const defaultModel = getAiProviderMeta(supportedProvider).defaultModel;
+  const storedModel = store.get('aiModel', store.get('anthropicModel', defaultModel)) || defaultModel;
+  const normalizedModel = normalizeProviderModel(supportedProvider, storedModel);
+  if (supportedProvider === 'gemini' && normalizedModel !== storedModel) {
+    store.set('aiModel', normalizedModel);
+    store.set('anthropicModel', normalizedModel);
+  }
   return {
-    key: store.get('anthropicKey', ''),
-    model: store.get('anthropicModel', DEFAULT_MODEL) || DEFAULT_MODEL,
+    provider: supportedProvider,
+    key: store.get('aiKey', store.get('anthropicKey', '')),
+    model: normalizedModel,
     experimental: store.get('experimentalAi', false),
   };
 }
 
+export const claudeSettings = aiSettings;
+
+function parseJsonResponse(text) {
+  if (!text || typeof text !== 'string') return null;
+  const compact = text.trim();
+  const cleaned = compact.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  try { return JSON.parse(cleaned); } catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try { return JSON.parse(cleaned.slice(start, end + 1)); } catch { return null; }
+    }
+    return null;
+  }
+}
+
 async function callTool({ system, user, tool, maxTokens = 4096, timeoutMs = 45000 }) {
-  const { key, model } = claudeSettings();
-  if (!key) throw new Error('Configure a chave da API do Claude em Configurações.');
+  const { key, model, provider } = aiSettings();
+  const providerMeta = getAiProviderMeta(provider);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
+    if (provider === 'gemini') {
+      if (!key) throw new Error(`Configure a chave da API do ${providerMeta.label} em Configurações.`);
+      const normalizedModel = String(model || '').trim().replace(/^models\//i, '').replace(/^gemini\//i, '').replace(/\s+/g, '');
+      if (!normalizedModel) throw new Error('Informe um modelo válido do Gemini, por exemplo: gemini-2.5-flash.');
+      const payload = {
+        contents: [{
+          role: 'user',
+          parts: [{
+            text: `${system}\n\n${user}\n\nResponda SOMENTE em JSON válido, sem explicações, sem markdown e sem texto extra.`,
+          }],
+        }],
+        generationConfig: { responseMimeType: 'application/json' },
+      };
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(normalizedModel)}:generateContent?key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message || `Gemini respondeu com erro ${res.status}`);
+      const text = (json.candidates || []).map((c) => (c.content?.parts || []).map((p) => p.text || '').join('')).join('');
+      const parsed = parseJsonResponse(text);
+      if (!parsed) throw new Error('Gemini não devolveu um JSON válido para a solicitação.');
+      return parsed;
+    }
+
+    if (provider !== 'claude') {
+      throw new Error(`O provedor ${providerMeta.label} ainda não está integrado ao fluxo de IA do PISTA. Use Claude para gerar o plano e a estimativa por enquanto.`);
+    }
+
+    if (!key) throw new Error(`Configure a chave da API do ${providerMeta.label} em Configurações.`);
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       signal: ctrl.signal,
@@ -47,7 +130,7 @@ async function callTool({ system, user, tool, maxTokens = 4096, timeoutMs = 4500
     if (!block) throw new Error('Claude não devolveu a resposta no formato esperado.');
     return block.input;
   } catch (e) {
-    if (e.name === 'AbortError') throw new Error('Claude demorou demais para responder. A festa segue com o modelo padrão.');
+    if (e.name === 'AbortError') throw new Error('A IA demorou demais para responder. A festa segue com o modelo padrão.');
     throw e;
   } finally {
     clearTimeout(timer);

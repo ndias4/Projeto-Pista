@@ -10,9 +10,10 @@
     "start": "node server.js",
     "start:legacy": "powershell -ExecutionPolicy Bypass -File servidor.ps1",
     "test": "node tests/planner.test.mjs && node tests/conductor.test.mjs",
+    "test:ai": "node tests/ai-energy.test.mjs",
     "test:server": "node --test tests/server.test.mjs",
     "test:e2e": "node tests/e2e.mjs",
-    "test:all": "npm run test && npm run test:server && npm run test:e2e"
+    "test:all": "npm run test && npm run test:ai && npm run test:server && npm run test:e2e"
   },
   "keywords": [],
   "author": "",
